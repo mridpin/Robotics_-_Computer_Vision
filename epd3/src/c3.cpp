@@ -150,9 +150,7 @@ bool Turtlebot::command(double gx, double gy)
 		}
 	}
 
-        publish(angular_vel,linear_vel);    
-
-
+        publish(angular_vel,linear_vel);
   	return ret_val;	
 }
 
@@ -211,7 +209,7 @@ int main(int argc, char** argv)
   * calling adequately to the command function
   */
 	
-  bool notArrived = true;
+  bool notArrived = false;
   while (ros::ok())
   {
     ros::spinOnce();
@@ -222,9 +220,10 @@ int main(int argc, char** argv)
 	
 	//while (notArrived && cont_wp < plan.size()) {
 		//notArrived = false;
-		notArrived = robot.command(plan[cont_wp].position.x, plan[cont_wp].position.y);
+	notArrived = robot.command(plan[cont_wp].position.x, plan[cont_wp].position.y);
 	if (notArrived && cont_wp < plan.size()) {
 		cont_wp+=1;
+		getchar();
 	}
 	
 
