@@ -17,13 +17,20 @@
 #include <vector>
 #include <fstream>
 
-#define SPEED_CONST 0.5
+#define SPEED_CONST 0.25
+#define SPEED_MAX 2
+#define SPEED_MIN 0.2
 #define PI 3.14159265358
 #define LIMIT 10.0
-#define SLOW 0.01
+#define OBSTACLE_DIST 1.0
 
 // Representation (RVIZ)
 #include <visualization_msgs/Marker.h>
+
+struct point {
+	float x;
+	float y;
+};
 
 /**
 * Our class to control the robot
@@ -65,6 +72,11 @@ private:
   
   //!Callback for kinect
   void receiveKinect(const sensor_msgs::LaserScan & laser_kinect);
+
+	// Punto leido por el laser despues de ser convertido desde angulo
+	point puntos[];
+	float obstacle_angle;
+	bool obstacle = false;
 
 };
 
@@ -132,23 +144,38 @@ bool Turtlebot::command(double gx, double gy)
 	ROS_INFO ("DISTANCIA: %.2f", d);
 	ROS_INFO ("WAYPOINT: x=%.2f, y=%.2f", gx, gy);
 
+	
+	// Si hay un obstaculo cerca, se para
+	for (int i=0; i<data_scan.ranges.size() && !obstacle; i++) {
+		if (data_scan.ranges[i] < OBSTACLE_DIST) {
+			obstacle_angle = theta + PI/4;
+			obstacle = true;
+		} else {
+			obstacle = false;
+			obstacle_angle = 0.0;
+		}
+
+	}
+
 	// SI ya ha llegado al objetivo
-	if (d < LIMIT/10) {
+	if (d < LIMIT/40) {
 		angular_vel = 0;
 		linear_vel = 0;
 		ret_val = true;
 		//ROS_INFO ("DISTANCIA 0");
 	} else {
 		// Si esta desorientado, rota hacia el objetivo	
-		if (theta > (LIMIT*(PI/180)) || theta < (-LIMIT*(PI/180))) {
+		if (!obstacle && (theta > (LIMIT*(PI/180)) || theta < (-LIMIT*(PI/180)))) {
 			angular_vel = theta * SPEED_CONST;
+			linear_vel = 0;			
+		} else if (obstacle) {
+			angular_vel = SPEED_CONST;
 			linear_vel = 0;
-			
 		} else { // SI ya esta orientado, se mueve en linea recta
-			linear_vel = SPEED_CONST * d;
+			linear_vel = SPEED_CONST;
 			angular_vel = 0;
 		}
-	}
+	}	
 
         publish(angular_vel,linear_vel);
   	return ret_val;	
@@ -177,6 +204,10 @@ void Turtlebot::receiveKinect(const sensor_msgs::LaserScan& msg)
 	data_scan=msg;
 	// Different variables used to detect obstacles
 	// Hay que hacer una transformacion de lo que se obtiene del scan a puntos para pasarselos al command y que evite los obstculos
+	for (int i=0; i<data_scan.ranges.size(); i++) {
+		puntos[i].x = data_scan.ranges[i] * cos(data_scan.angle_min + i * data_scan.angle_increment);
+		puntos[i].y = data_scan.ranges[i] * sin(data_scan.angle_min + i * data_scan.angle_increment);
+	}
 
 }
 
@@ -219,7 +250,7 @@ int main(int argc, char** argv)
 	//aqui hay que pasarle a command el goal al que queremos ir, y cuando estemos a una distancia de ese punto, pasar a siguiente
 	
 	//while (notArrived && cont_wp < plan.size()) {
-		//notArrived = false;
+	//notArrived = false;
 	notArrived = robot.command(plan[cont_wp].position.x, plan[cont_wp].position.y);
 	if (notArrived && cont_wp < plan.size()) {
 		cont_wp+=1;
