@@ -1,5 +1,3 @@
-
-
 #include <ros/ros.h>
 #include <geometry_msgs/Twist.h>
 #include <tf/tf.h>
@@ -96,7 +94,6 @@ bool Turtlebot::command(double gx, double gy)
 
 	double linear_vel=0.0;
 	double angular_vel=0.0;
-	
 	bool ret_val = false;
 
 	//Transform the goal to the local frame
@@ -143,7 +140,8 @@ bool Turtlebot::command(double gx, double gy)
 	ROS_INFO ("THETA: %.2f", theta);
 	ROS_INFO ("DISTANCIA: %.2f", d);
 	ROS_INFO ("WAYPOINT: x=%.2f, y=%.2f", gx, gy);
-
+	ROS_INFO ("OBSTACLE: %d", obstacle);
+	
 	
 	// Si hay un obstaculo cerca, se para
 	for (int i=0; i<data_scan.ranges.size() && !obstacle; i++) {
@@ -157,6 +155,15 @@ bool Turtlebot::command(double gx, double gy)
 
 	}
 
+	if (obstacle) {
+		if (theta > 0) {
+			theta = PI/2;
+		} else {
+			theta = -PI/2;
+		}
+	}
+	// con un switch, una variable que si es 0 esta evitando (girando), si es 1, avanza 1 metro, si es 2, ya no hay obstaculo y vuelve al recorrido
+
 	// SI ya ha llegado al objetivo
 	if (d < LIMIT/40) {
 		angular_vel = 0;
@@ -167,10 +174,10 @@ bool Turtlebot::command(double gx, double gy)
 		// Si esta desorientado, rota hacia el objetivo	
 		if (!obstacle && (theta > (LIMIT*(PI/180)) || theta < (-LIMIT*(PI/180)))) {
 			angular_vel = theta * SPEED_CONST;
-			linear_vel = 0;			
+			linear_vel = 0.0;			
 		} else if (obstacle) {
-			angular_vel = SPEED_CONST;
-			linear_vel = 0;
+			angular_vel = SPEED_CONST * 2;
+			linear_vel = SPEED_CONST;
 		} else { // SI ya esta orientado, se mueve en linea recta
 			linear_vel = SPEED_CONST;
 			angular_vel = 0;
@@ -337,4 +344,3 @@ void visualizePlan(const std::vector< geometry_msgs::Pose >& plan, ros::Publishe
     marker_pub.publish(marker);
   }
 }
-
