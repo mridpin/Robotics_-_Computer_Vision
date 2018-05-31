@@ -19,7 +19,7 @@
 #define SPEED_MAX 2
 #define SPEED_MIN 0.2
 #define PI 3.14159265358
-#define LIMIT 10.0
+#define LIMIT 3.0
 #define OBSTACLE_DIST 1.0
 
 // Representation (RVIZ)
@@ -29,6 +29,9 @@ struct point {
 	float x;
 	float y;
 };
+// estas dos tienen que ser una variable global porque una variable de la clase se llena de basura sin motivo
+int status = 2; 
+geometry_msgs::PointStamped statusOnePosition;
 
 /**
 * Our class to control the robot
@@ -73,12 +76,11 @@ private:
 
   // Punto leido por el laser despues de ser convertido desde angulo
   point puntos[];
-  float obstacle_angle;
-  bool obstacle = false;
+  //bool obstacle = false;
   //Una variable que si es 0 esta evitando (girando), si es 1, avanza 1 metro, si es 2, ya no hay obstaculo y vuelve al recorrido
-  int status = 2;
+  //int status;
   // Punto el el sistema de referencia global en el que el robot empezo el estatus 1
-  geometry_msgs::PointStamped statusOnePosition;
+  //geometry_msgs::PointStamped statusOnePosition;
 
 };
 
@@ -87,7 +89,6 @@ Turtlebot::Turtlebot()
   vel_pub_ = nh_.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi", 1);
 
   kinect_sub_ = nh_.subscribe("/scan",1,&Turtlebot::receiveKinect,this);
-
 }
 
 bool Turtlebot::command(double gx, double gy)  
@@ -119,7 +120,7 @@ bool Turtlebot::command(double gx, double gy)
 		base_goal.point.x, base_goal.point.y, base_goal.point.z, base_goal.header.stamp.toSec());
 
   	}catch(tf::TransformException& ex){
-    		ROS_ERROR("Received an exception trying to transform a point from \"base_laser\" to \"base_link\": %s", ex.what());
+    		ROS_INFO("Received an exception trying to transform a point from \"base_laser\" to \"base_link\": %s", ex.what());
 		return ret_val;
   	}
 	
@@ -133,28 +134,29 @@ bool Turtlebot::command(double gx, double gy)
 	double x = base_goal.point.x;
 	double y = base_goal.point.y;
 	double d = sqrt((base_goal.point.x*base_goal.point.x)+(base_goal.point.y*base_goal.point.y));
-	double theta = atan2(y, x); 
+	double theta = atan2(y, x);
 
-	ROS_INFO("Angulo %.2f, dist %.2f", theta*(180/PI), d);
+	ROS_INFO ("THETA: %.2f", theta*180/PI);
+	ROS_INFO ("DISTANCIA: %.2f", d);
+
 	//ROS_INFO ("ANGLE LIMIT+: %.2f", (LIMIT*(PI/180)));
 	//ROS_INFO ("ANGLE LIMIT-: %.2f", (-LIMIT*(PI/180)));
-	ROS_INFO ("THETA: %.2f", theta);
-	ROS_INFO ("DISTANCIA: %.2f", d);
 	//ROS_INFO ("WAYPOINT: x=%.2f, y=%.2f", gx, gy);
 	//ROS_INFO ("OBSTACLE: %d", obstacle);
-	
+	ROS_INFO("STATUS PRE LOGIC: %d", status);
 	
 	// Si hay un obstaculo cerca, se para
 	for (int i=0; i<data_scan.ranges.size(); i++) {
-		if (data_scan.ranges[i] < OBSTACLE_DIST) {
+		if ((data_scan.ranges[i] < OBSTACLE_DIST) && status != 1) {
 			status = 0;
 		} else {
-			status = 2;
+			//status = 2;
+			theta = atan2(y, x); 
 		}
 	}
 	
 	// Si el robot esta esquivando un objeto, ignora el objetivo
-	if (status!=1 || status!=0) {
+	if (status > 1 && status < 4) {
 		// Si esta desorientado, rota hacia el objetivo	
 		if (theta > (LIMIT*(PI/180)) || theta < (-LIMIT*(PI/180))) {
 			status = 2;			
@@ -163,7 +165,8 @@ bool Turtlebot::command(double gx, double gy)
 		}
 	}
 
-	// con un switch, una variable que si es 0 esta evitando (girando), si es 1, avanza 1 metro, si es 2, ya no hay obstaculo y vuelve al recorrido
+	// con un switch,
+	//una variable que si es 0 esta evitando (girando), si es 1, avanza 1 metro, si es 2, ya no hay obstaculo y vuelve al recorrido
 	switch (status) {
 		case 0: // Reorientarse para evitar obstaculo
 		{
@@ -171,31 +174,56 @@ bool Turtlebot::command(double gx, double gy)
 			linear_vel = 0.0;
 			// Si ya esta orientado
 			if (((theta+PI/4) < (LIMIT*(PI/180))) && ((theta+PI/4) > (-LIMIT*(PI/180)))) {
+				ROS_INFO("ORIENTED TO 1");
 				status = 1;
-				// statusOnePosition = 0,0 del robot
+				// statusOnePosition = guardamos el 0,0 del robot (base_link) para usarlo luego
 				geometry_msgs::PointStamped zero;
+				zero.header.frame_id = "base_link";
+				zero.header.stamp = ros::Time();
 				zero.point.x = 0.0;
 				zero.point.y = 0.0;
 				zero.point.z = 0.0;
-				listener.transformPoint("base_link", zero, statusOnePosition);
+				try {
+					listener.transformPoint("odom", zero, statusOnePosition); 
+				}catch(tf::TransformException& ex){
+			    		ROS_INFO("WARNING: Received an exception trying to transform zero to statusOnePosition: %s", ex.what());
+					return ret_val;
+			  	} 
 				ROS_INFO ("Status 1 position: [%.2f, %.2f]", statusOnePosition.point.x, statusOnePosition.point.y);
 			}
-			ROS_INFO ("STATUS 0");
+			ROS_INFO ("STATUS 0: New target theta: %.2f", (theta+PI/4)*180/PI);
 		}
 		break;
 		case 1: // Moverse 1 metro para evitar obstaculo
 		{
 			// comprobar si ha recorrido 1 metro: si robot(0,0) - statusOnePosition > 1
 			geometry_msgs::PointStamped statusOnePositionRobot;
-			listener.transformPoint("base_link", statusOnePosition, statusOnePositionRobot);
-			float traveledDistance = sqrt((statusOnePositionRobot.point.x*statusOnePositionRobot.point.x)				+(statusOnePositionRobot.point.y*statusOnePositionRobot.point.y));
+			geometry_msgs::PointStamped zero;
+			zero.header.frame_id = "base_link";
+			zero.header.stamp = ros::Time();
+			zero.point.x = 0.0;
+			zero.point.y = 0.0;
+			zero.point.z = 0.0;
+			statusOnePositionRobot.header.frame_id="base_link";
+			try {
+				listener.transformPoint("odom", zero, statusOnePositionRobot); // RETOMAR AQUI. Esto devuelve 0,0
+			} catch(tf::TransformException& ex){
+				ROS_INFO("Received an exception trying to transform statusOnePosition to statusOnePositionRobot: %s", ex.what());
+				return ret_val;
+		  	} 
+			ROS_INFO("STATUSONEPOSITION: x=%.2f, y=%.2f", statusOnePosition.point.x, statusOnePosition.point.y);
+			ROS_INFO("STATUSONEPOSITIONROBOT: x=%.2f, y=%.2f", statusOnePositionRobot.point.x, statusOnePositionRobot.point.y);
+			float traveledDistance = sqrt(
+				pow((statusOnePosition.point.x-statusOnePositionRobot.point.x), 2) +
+				pow((statusOnePosition.point.y-statusOnePositionRobot.point.y), 2)
+			);
 			if (traveledDistance < 1.0) {
 				linear_vel = SPEED_CONST;
 				angular_vel = 0;
 			} else {
 				status = 2;
 			}
-			ROS_INFO ("STATUS 1");
+			ROS_INFO ("STATUS 1: traveled distance=%.2f", traveledDistance);
 		}
 		break;
 		case 2: // Reorientarse hacia el objetivo
@@ -223,7 +251,7 @@ bool Turtlebot::command(double gx, double gy)
 		ret_val = true;
 		//ROS_INFO ("DISTANCIA 0");
 	}	
-
+	ROS_INFO("STATUS AFTER LOGIC: %d", status);
         publish(angular_vel,linear_vel);
   	return ret_val;	
 }
@@ -266,8 +294,7 @@ int main(int argc, char** argv)
 {
   ros::init(argc, argv, "robot_control");
   Turtlebot robot;
-  ros::NodeHandle n;
-
+  ros::NodeHandle n;  
 
   if(argc<2)
   {
