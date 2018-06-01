@@ -15,11 +15,11 @@
 #include <vector>
 #include <fstream>
 
-#define SPEED_CONST 0.25
+#define SPEED_CONST 0.3
 #define SPEED_MAX 2
 #define SPEED_MIN 0.2
 #define PI 3.14159265358
-#define LIMIT 3.0
+#define LIMIT 10.0
 #define OBSTACLE_DIST 1.0
 
 // Representation (RVIZ)
@@ -32,7 +32,8 @@ struct point {
 // estas dos tienen que ser una variable global porque una variable de la clase se llena de basura sin motivo
 int status = 2; 
 geometry_msgs::PointStamped statusOnePosition;
-
+double dodgetheta = 0.0;
+double thetadiff = 0.0;
 /**
 * Our class to control the robot
 * It has members to store the robot pose, and
@@ -76,7 +77,6 @@ private:
 
   // Punto leido por el laser despues de ser convertido desde angulo
   point puntos[];
-  //bool obstacle = false;
   //Una variable que si es 0 esta evitando (girando), si es 1, avanza 1 metro, si es 2, ya no hay obstaculo y vuelve al recorrido
   //int status;
   // Punto el el sistema de referencia global en el que el robot empezo el estatus 1
@@ -138,23 +138,25 @@ bool Turtlebot::command(double gx, double gy)
 
 	ROS_INFO ("THETA: %.2f", theta*180/PI);
 	ROS_INFO ("DISTANCIA: %.2f", d);
-
-	//ROS_INFO ("ANGLE LIMIT+: %.2f", (LIMIT*(PI/180)));
-	//ROS_INFO ("ANGLE LIMIT-: %.2f", (-LIMIT*(PI/180)));
-	//ROS_INFO ("WAYPOINT: x=%.2f, y=%.2f", gx, gy);
-	//ROS_INFO ("OBSTACLE: %d", obstacle);
 	ROS_INFO("STATUS PRE LOGIC: %d", status);
 	
 	// Si hay un obstaculo cerca, se para
 	for (int i=0; i<data_scan.ranges.size(); i++) {
-		if ((data_scan.ranges[i] < OBSTACLE_DIST) && status != 1) {
+		if ((data_scan.ranges[i] < OBSTACLE_DIST) && (thetadiff <PI/24 && thetadiff > -PI/24) && status!=0) {
 			status = 0;
-		} else {
-			//status = 2;
-			theta = atan2(y, x); 
+			// Si es la primera vez que se detecta un obstaculo
+			// RETOMAR AQUI: DODGETHETA TIENE QUE SER EL 0 ACTUAL DEL ROBOT +- 45 GRADOS
+			if (dodgetheta==0) {
+				dodgetheta += (theta>0) ? PI/4 : -PI/4;
+			} else {
+			// Si ya se estaba esquivando pero hace falta esquivar mas
+				dodgetheta += (dodgetheta>0) ? PI/4 : -PI/4;	
+			}
+			ROS_INFO("OBSTACLE DETECTED: DODGETHETA=%.2f", dodgetheta*180/PI);
 		}
 	}
-	
+	ROS_INFO("DODGETHETA: %.2f", dodgetheta*(180/PI));
+	ROS_INFO("THETADIFF: %.2f", thetadiff*(180/PI));
 	// Si el robot esta esquivando un objeto, ignora el objetivo
 	if (status > 1 && status < 4) {
 		// Si esta desorientado, rota hacia el objetivo	
@@ -169,11 +171,33 @@ bool Turtlebot::command(double gx, double gy)
 	//una variable que si es 0 esta evitando (girando), si es 1, avanza 1 metro, si es 2, ya no hay obstaculo y vuelve al recorrido
 	switch (status) {
 		case 0: // Reorientarse para evitar obstaculo
-		{
-			angular_vel = (theta+PI/4) * SPEED_CONST;
+		{	
+			// Calculamos lo que queda para llegar a dodgetheta
+			// Convertimos dodgetheta a dodgepoint
+			geometry_msgs::PointStamped dodge_point;
+			dodge_point.header.frame_id = "odom";
+			dodge_point.header.stamp = ros::Time();
+			dodge_point.point.x = OBSTACLE_DIST * cos(dodgetheta);
+			dodge_point.point.y = OBSTACLE_DIST * sin(dodgetheta);
+			dodge_point.point.z = 0.0;
+			geometry_msgs::PointStamped base_dodge_point;
+			// Convertimos dodgepoint a base_link
+			try {
+				listener.transformPoint("base_link", dodge_point, base_dodge_point); 
+			}catch(tf::TransformException& ex){
+		    		ROS_INFO("WARNING: Received an exception trying to transform dodgepoint to basedodgepoint: %s", ex.what());
+				return ret_val;
+			}
+			ROS_INFO("DODGEPOINT [x=%.2f, y=%.2f]", dodge_point.point.x, dodge_point.point.y);
+			ROS_INFO("BASE_DODGEPOINT [x=%.2f, y=%.2f]", base_dodge_point.point.x, base_dodge_point.point.y);
+			// Calculamos lo que queda para orientarse a base_dodgepoint			
+			thetadiff = atan2(base_dodge_point.point.y, base_dodge_point.point.x);  
+			// RETOMAR AQUI: Hay que hacer la resta real entre donde mira el robot y dodgetheta
+			angular_vel = (thetadiff<0) ? -SPEED_CONST : SPEED_CONST;
 			linear_vel = 0.0;
 			// Si ya esta orientado
-			if (((theta+PI/4) < (LIMIT*(PI/180))) && ((theta+PI/4) > (-LIMIT*(PI/180)))) {
+			//if (((theta+PI/4) < (LIMIT*(PI/180))) && ((theta+PI/4) > (-LIMIT*(PI/180)))) {
+			if ((thetadiff < PI/24) && (thetadiff > -PI/24)) {
 				ROS_INFO("ORIENTED TO 1");
 				status = 1;
 				// statusOnePosition = guardamos el 0,0 del robot (base_link) para usarlo luego
@@ -191,7 +215,7 @@ bool Turtlebot::command(double gx, double gy)
 			  	} 
 				ROS_INFO ("Status 1 position: [%.2f, %.2f]", statusOnePosition.point.x, statusOnePosition.point.y);
 			}
-			ROS_INFO ("STATUS 0: New target theta: %.2f", (theta+PI/4)*180/PI);
+			ROS_INFO ("STATUS 0: Degrees to dodgetheta: %.2f", thetadiff*180/PI);
 		}
 		break;
 		case 1: // Moverse 1 metro para evitar obstaculo
@@ -227,14 +251,16 @@ bool Turtlebot::command(double gx, double gy)
 		}
 		break;
 		case 2: // Reorientarse hacia el objetivo
-		{
-			angular_vel = theta * SPEED_CONST;
+		{	
+			dodgetheta = 0;
+			angular_vel = (theta<=0) ? -SPEED_CONST : SPEED_CONST;
 			linear_vel = 0.0;
 			ROS_INFO ("STATUS 2");
 		}
 		break;
 		case 3:  // Moverse hacia el objetivo
 		{
+			dodgetheta = 0;
 			linear_vel = SPEED_CONST;
 			angular_vel = 0.0;
 			ROS_INFO ("STATUS 3");
@@ -410,4 +436,4 @@ void visualizePlan(const std::vector< geometry_msgs::Pose >& plan, ros::Publishe
     // Publish the marker
     marker_pub.publish(marker);
   }
-}
+} 
