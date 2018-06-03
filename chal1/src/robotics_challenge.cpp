@@ -32,7 +32,7 @@
 #define SPEED_MIN 0.2
 #define PI 3.14159265358
 #define LIMIT 10.0
-#define OBSTACLE_DIST 1.0
+#define OBSTACLE_DIST 0.65
 
 struct point {
 	float x;
@@ -162,11 +162,11 @@ bool Turtlebot::command(double gx, double gy)
 			// RETOMAR AQUI: O BIEN NO RESETEAMOS DODGETHETA O SIEMPRE ESQUIVAMOS EN LA MISMA DIRECCION
 			if (dodgetheta==0) {
 				//dodgetheta += (theta>0) ? PI/12 : -PI/12;
-				dodgetheta += PI/12;
+				dodgetheta -= PI/12;
 			} else {
 			// Si ya se estaba esquivando pero hace falta esquivar mas
-				//dodgetheta += (dodgetheta>0) ? PI/12 : -PI/12;
-				dodgetheta += PI/12;	
+				dodgetheta += (dodgetheta>0) ? PI/12 : -PI/12;
+				//dodgetheta += PI/12;	
 			}
 			// Convertimos dodgetheta a dodgepoint
 			geometry_msgs::PointStamped dodge_point;
@@ -265,7 +265,7 @@ bool Turtlebot::command(double gx, double gy)
 				pow((statusOnePosition.point.x-statusOnePositionRobot.point.x), 2) +
 				pow((statusOnePosition.point.y-statusOnePositionRobot.point.y), 2)
 			);
-			if (traveledDistance < 1.0) {
+			if (traveledDistance < OBSTACLE_DIST - 0.15) {
 				linear_vel = SPEED_CONST;
 				angular_vel = 0;
 			} else {
@@ -437,8 +437,6 @@ int main(int argc, char** argv)
   	{
 	//aqui hay que pasarle a command el goal al que queremos ir, y cuando estemos a una distancia de ese punto, pasar a siguiente
 	
-	//while (notArrived && cont_wp < plan.size()) {
-	//notArrived = false;
 	//notArrived = command(plan[cont_wp].position.x, plan[cont_wp].position.y);
 	notArrived = robot.command(goal.pose.position.x, goal.pose.position.y);
 	if (notArrived && cont_wp < plan.size()) {
