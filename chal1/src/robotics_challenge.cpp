@@ -27,12 +27,12 @@
 #include <vector>
 #include <fstream>
 
-#define SPEED_CONST 0.3
+#define SPEED_CONST 0.4
 #define SPEED_MAX 2
 #define SPEED_MIN 0.2
 #define PI 3.14159265358
 #define LIMIT 10.0
-#define OBSTACLE_DIST 0.65
+#define OBSTACLE_DIST 0.60
 
 struct point {
 	float x;
@@ -161,12 +161,12 @@ bool Turtlebot::command(double gx, double gy)
 			// Si es la primera vez que se detecta un obstaculo
 			// RETOMAR AQUI: O BIEN NO RESETEAMOS DODGETHETA O SIEMPRE ESQUIVAMOS EN LA MISMA DIRECCION
 			if (dodgetheta==0) {
-				//dodgetheta += (theta>0) ? PI/12 : -PI/12;
-				dodgetheta -= PI/12;
+				dodgetheta += (theta>0) ? PI/12 : -PI/12;
+				//dodgetheta += -PI/12;
 			} else {
 			// Si ya se estaba esquivando pero hace falta esquivar mas
 				dodgetheta += (dodgetheta>0) ? PI/12 : -PI/12;
-				//dodgetheta += PI/12;	
+				//dodgetheta += -PI/12;	
 			}
 			// Convertimos dodgetheta a dodgepoint
 			geometry_msgs::PointStamped dodge_point;
@@ -265,7 +265,7 @@ bool Turtlebot::command(double gx, double gy)
 				pow((statusOnePosition.point.x-statusOnePositionRobot.point.x), 2) +
 				pow((statusOnePosition.point.y-statusOnePositionRobot.point.y), 2)
 			);
-			if (traveledDistance < OBSTACLE_DIST - 0.15) {
+			if (traveledDistance < OBSTACLE_DIST - 0.10) {
 				linear_vel = SPEED_CONST;
 				angular_vel = 0;
 			} else {
